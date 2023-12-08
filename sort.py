@@ -108,24 +108,19 @@ def normalize(filename: str) -> str:
         file_ext = filename[extension_start_index:]
         filename = filename[:extension_start_index]
 
-        # print(f"normilize debug: filename {filename}, ext {file_ext}")
-
     normalized_filename = ""
 
     # Transliterate Cyrillic characters
     for character in filename:
         if character in transliteration_dict:
             normalized_filename += transliteration_dict[character]
-            # print(character, "->", transliteration_dict[character])
         else:
             if character.isalnum():
                 # Keep alphanumeric characters
                 normalized_filename += character
-                # print(character, "=")
             else:
                 # Pass through non-alphanumeric characters unchanged
                 normalized_filename += "_"
-                # print(character, "->", "_")
     # Return the normalized filename with extension
     return normalized_filename + file_ext
 
@@ -141,44 +136,39 @@ def get_category_name(file: Path) -> str:
 def move_file(file: Path, category: str, root_dir: Path) -> None:
     target_dir = root_dir.joinpath(category)
     if not target_dir.exists():
-        target_dir.mkdir()
+        target_dir.mkdir(exist_ok=True)
         logging.debug(f"Created Folder {target_dir}")
-        # log.append(f"DIR: {target_dir} was created\n")
-    # TODO check exist - count existing files, add increment to the file name
+
     new_path = target_dir.joinpath(normalize(file.name))
     if file.stem != new_path.stem:
         logging.debug(f"Normilized {file.name} -> {new_path.name}")
-        # log.append(f"NORMALIZE: File renamed {file.name} -> {new_path.name}\n")
 
     if not new_path.exists():
         file.replace(new_path)
         logging.debug(f"File moved {file} -> {new_path}")
-        # log.append(f"SORT: File moved {file} -> {new_path}\n")
     else:
         file.replace(new_path)
-        # logging.debug(f"Duplicate File moved {file} -> {new_path}")
-        # log.append(f"SORT: Duplicate File moved {file} -> {new_path}\n")
-
     return
 
 
 def sort_folder(path: Path) -> None:
     logging.info(f"Started sorting folder {path}")
-    # log.append(f"LOG: started sorting folder {path}\n")
+    threads = []
     for element in path.glob("**/*"):
 
         if element.is_file():
-            # print(element, "\n")
             category = get_category_name(element)
             if category != "other":
                 known_extensions.add(element.suffix)
             else:
                 unknown_extensions.add(element.suffix)
-            # if category == "archives":
-            #    unpack_archive(element, category, path)
-            # else:
-            # print(element, category, path)
-            move_file(element, category, path)
+
+            thread = Thread(target=move_file, args=(element, category, path))
+            thread.start()
+            threads.append(thread)
+            # move_file(element, category, path)
+    [thread.join() for thread in threads]
+    logging.debug(f"All threads finished")
     return
 
 
@@ -190,14 +180,11 @@ def unpack_archive(file: Path, category: str, root_dir: Path) -> None:
         file.replace(new_path)
         # os.remove(file)
         logging.debug(f"Archive unpacked {file} -> {path_to_unpack}")
-        # log.append(f"SORT: Archive unpacked {file} -> {path_to_unpack}\n")
     except:
         logging.error(f"Error unpacking Archive {file}")
-        # log.append(f"SORT: Error unpacking Archive {file}\n")
     return
 
 
-# function is check is file is archive by checking is present extensions in the CATEGORIES dict in the "archives"
 def is_archive(file: Path) -> bool:
     ext = file.suffix.lower()
     if ext in CATEGORIES["archives"]:
@@ -206,19 +193,17 @@ def is_archive(file: Path) -> bool:
 
 
 def unpack_archives(root_dir: Path) -> None:
-    logging.info(f"Unpacking archives")
+    logging.info(f"Starting unpacking archives")
     category = "archives"
     path = root_dir.joinpath(category)
+    threads = []
     for element in path.glob("**/*"):
         if element.is_file() and is_archive(element):
-            path_to_unpack = path.joinpath(normalize(element.stem))
-            try:
-                shutil.unpack_archive(element, path_to_unpack)
-                logging.debug(f"Archive unpacked {element} -> {path_to_unpack}")
-                # log.append(f"SORT: Archive unpacked {element} -> {path_to_unpack}\n")
-            except:
-                logging.error(f"Error unpacking Archive {element}")
-                # log.append(f"SORT: Error unpacking Archive {element}\n")
+            thread = Thread(target=unpack_archive, args=(element, category, root_dir))
+            thread.start()
+            threads.append(thread)
+    [thread.join() for thread in threads]
+    logging.debug(f"All threads finished")
     return
 
 
@@ -230,7 +215,7 @@ def delete_empty_folders(root_dir) -> None:
             if not os.listdir(full_path):
                 os.rmdir(full_path)
                 logging.debug(f"Empty Folder was removed {full_path}")
-                # log.append(f"DIR: Empty Directory {full_path} was removed\n")
+
     return
 
 
@@ -243,9 +228,6 @@ def count_files_in_folders(root_dir: Path) -> None:
     logging.info(f"------------------------- Sorting results -------------------------")
     logging.info("Known extensions: " + ", ".join(known_extensions))
     logging.info("Unknown extensions: " + ", ".join(unknown_extensions))
-    # log.append("------------------------- Sorting results -------------------------")
-    # log.append("\nKnown extensions: " + ", ".join(known_extensions))
-    # log.append("\nUnknown extensions: " + ", ".join(unknown_extensions))
 
     for el in all_categories:
         category = el
@@ -254,23 +236,7 @@ def count_files_in_folders(root_dir: Path) -> None:
         files_count = sum(1 for element in path_dir.glob(
             '**/*') if element.is_file())
         logging.info(f"Files in the {category}: {files_count}")
-        # log.append(f"\nFiles in the {category}: {files_count}")
     return
-
-
-def write_log_file(path: Path) -> bool:
-    log_file = path.joinpath("log.txt")
-    print(f"Log file saved in {log_file}")
-    # Open log file and write logs
-    with open(log_file, "w") as fh:
-        for l in log:
-            try:
-                fh.write(l)
-            except:
-                print("ERROR writing to the log file:")
-                print(l)
-                return False
-    return True
 
 
 def main():
@@ -305,8 +271,6 @@ def main():
     delete_empty_folders(path)
 
     count_files_in_folders(path)
-
-    # write_log_file(path)
 
     end = time()
 
