@@ -2,6 +2,9 @@ import shutil
 from pathlib import Path
 import sys
 import os
+from threading import Thread
+from time import time
+import logging
 
 transliteration_dict = {
     "а": "a",
@@ -128,16 +131,6 @@ def normalize(filename: str) -> str:
 
 
 def get_category_name(file: Path) -> str:
-    """
-    Determine category name based on file extension.
-
-    Parameters:
-        file (Path): Path object for file
-
-    Returns:
-        str: Category name if extension matches, 'other' otherwise
-    """
-
     ext = file.suffix.lower()
     for category, exts in CATEGORIES.items():
         if ext in exts:
@@ -146,51 +139,36 @@ def get_category_name(file: Path) -> str:
 
 
 def move_file(file: Path, category: str, root_dir: Path) -> None:
-    """
-    Move a file to a category folder within the given root directory.
-        Parameters:
-            file (Path): The file to move
-            category (str): The category folder name 
-            root_dir (Path): The parent directory to move the file into
-
-        Returns:
-            None
-    """
     target_dir = root_dir.joinpath(category)
     if not target_dir.exists():
         target_dir.mkdir()
-        log.append(f"DIR: {target_dir} was created\n")
+        logging.debug(f"Created Folder {target_dir}")
+        # log.append(f"DIR: {target_dir} was created\n")
     # TODO check exist - count existing files, add increment to the file name
     new_path = target_dir.joinpath(normalize(file.name))
     if file.stem != new_path.stem:
-        log.append(f"NORMALIZE: File renamed {file.name} -> {new_path.name}\n")
+        logging.debug(f"Normilized {file.name} -> {new_path.name}")
+        # log.append(f"NORMALIZE: File renamed {file.name} -> {new_path.name}\n")
 
     if not new_path.exists():
         file.replace(new_path)
-        log.append(f"SORT: File moved {file} -> {new_path}\n")
+        logging.debug(f"File moved {file} -> {new_path}")
+        # log.append(f"SORT: File moved {file} -> {new_path}\n")
     else:
         file.replace(new_path)
+        # logging.debug(f"Duplicate File moved {file} -> {new_path}")
         # log.append(f"SORT: Duplicate File moved {file} -> {new_path}\n")
 
     return
 
 
 def sort_folder(path: Path) -> None:
-    """
-    Sorts the files in a given folder into different categories based on their file extensions.
-
-    Args:
-        path (Path): The path of the folder to be sorted.
-
-    Returns:
-        None
-    """
-
-    log.append(f"LOG: started sorting folder {path}\n")
+    logging.info(f"Started sorting folder {path}")
+    # log.append(f"LOG: started sorting folder {path}\n")
     for element in path.glob("**/*"):
 
         if element.is_file():
-            #print(element, "\n")
+            # print(element, "\n")
             category = get_category_name(element)
             if category != "other":
                 known_extensions.add(element.suffix)
@@ -205,90 +183,69 @@ def sort_folder(path: Path) -> None:
 
 
 def unpack_archive(file: Path, category: str, root_dir: Path) -> None:
-    """
-    Unpacks an archive file.
-
-    Args:
-        file (Path): The path of the archive file to be unpacked.
-        category (str): The category the archive file belongs to.
-        root_dir (Path): The root directory where the archive file is located.
-
-    Returns:
-        None
-    """
     path_to_unpack = root_dir.joinpath(category).joinpath(normalize(file.stem))
     new_path = root_dir.joinpath(category).joinpath(normalize(file.name))
     try:
         shutil.unpack_archive(file, path_to_unpack)
         file.replace(new_path)
         # os.remove(file)
-        log.append(f"SORT: Archive unpacked {file} -> {path_to_unpack}\n")
+        logging.debug(f"Archive unpacked {file} -> {path_to_unpack}")
+        # log.append(f"SORT: Archive unpacked {file} -> {path_to_unpack}\n")
     except:
-
-        log.append(f"SORT: Error unpacking Archive {file}\n")
+        logging.error(f"Error unpacking Archive {file}")
+        # log.append(f"SORT: Error unpacking Archive {file}\n")
     return
 
 
+# function is check is file is archive by checking is present extensions in the CATEGORIES dict in the "archives"
+def is_archive(file: Path) -> bool:
+    ext = file.suffix.lower()
+    if ext in CATEGORIES["archives"]:
+        return True
+    return False
+
+
 def unpack_archives(root_dir: Path) -> None:
+    logging.info(f"Unpacking archives")
     category = "archives"
     path = root_dir.joinpath(category)
     for element in path.glob("**/*"):
-        if element.is_file():
+        if element.is_file() and is_archive(element):
             path_to_unpack = path.joinpath(normalize(element.stem))
             try:
                 shutil.unpack_archive(element, path_to_unpack)
-                log.append(
-                    f"SORT: Archive unpacked {element} -> {path_to_unpack}\n")
+                logging.debug(f"Archive unpacked {element} -> {path_to_unpack}")
+                # log.append(f"SORT: Archive unpacked {element} -> {path_to_unpack}\n")
             except:
-                log.append(f"SORT: Error unpacking Archive {element}\n")
-
+                logging.error(f"Error unpacking Archive {element}")
+                # log.append(f"SORT: Error unpacking Archive {element}\n")
     return
 
 
 def delete_empty_folders(root_dir) -> None:
-    """
-    Delete any empty subfolders within the given root directory.
-
-    Parameters:
-        root_dir (Path): The parent directory to check for empty folders
-
-    Returns:
-        None
-
-    Uses os.walk() to traverse root_dir recursively. Checks each 
-    subfolder if empty using os.listdir(). Deletes empty folders with 
-    os.rmdir(). Logs any deletions.
-    """
+    logging.info(f"Deleting empty folders")
     for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
         for dirname in dirnames:
             full_path = os.path.join(dirpath, dirname)
             if not os.listdir(full_path):
                 os.rmdir(full_path)
-                log.append(f"DIR: Empty Directory {full_path} was removed\n")
+                logging.debug(f"Empty Folder was removed {full_path}")
+                # log.append(f"DIR: Empty Directory {full_path} was removed\n")
     return
 
 
 def count_files_in_folders(root_dir: Path) -> None:
-    """
-    Count total files in each category folder under the given root directory.
-
-    Parameters:
-        root_dir (Path): The parent directory containing category folders
-
-    Returns:
-        None
-
-    Logs the total file count per category folder to the global log.
-    Also logs known and unknown file extensions encountered.
-    """
     all_categories = []
     for el in CATEGORIES.items():
         all_categories.append(el[0])
     all_categories.append("other")
-    log.append(
-        "------------------------- Sorting results -------------------------")
-    log.append("\nKnown extensions: " + ", ".join(known_extensions))
-    log.append("\nUnknown extensions: " + ", ".join(unknown_extensions))
+    logging.info(f"Counting files in folders {root_dir}")
+    logging.info(f"------------------------- Sorting results -------------------------")
+    logging.info("Known extensions: " + ", ".join(known_extensions))
+    logging.info("Unknown extensions: " + ", ".join(unknown_extensions))
+    # log.append("------------------------- Sorting results -------------------------")
+    # log.append("\nKnown extensions: " + ", ".join(known_extensions))
+    # log.append("\nUnknown extensions: " + ", ".join(unknown_extensions))
 
     for el in all_categories:
         category = el
@@ -296,27 +253,14 @@ def count_files_in_folders(root_dir: Path) -> None:
         path_dir = root_dir.joinpath(category)
         files_count = sum(1 for element in path_dir.glob(
             '**/*') if element.is_file())
-
-        log.append(f"\nFiles in the {category}: {files_count}")
+        logging.info(f"Files in the {category}: {files_count}")
+        # log.append(f"\nFiles in the {category}: {files_count}")
     return
 
 
 def write_log_file(path: Path) -> bool:
-    """
-    Write the log list to a log file at the given path.
-
-    Parameters:
-        path (Path): Path to directory to write log file in
-
-    Returns:
-        bool: True if write succeeded, False otherwise
-
-    Opens a log file named 'log.txt' in the given path. 
-    Writes each log message in the global log list to the file.
-    Returns True if writing succeeded, False if any errors occur.
-    """
     log_file = path.joinpath("log.txt")
-    print(f"Sorting Done. Log file saved in {log_file}")
+    print(f"Log file saved in {log_file}")
     # Open log file and write logs
     with open(log_file, "w") as fh:
         for l in log:
@@ -330,36 +274,29 @@ def write_log_file(path: Path) -> bool:
 
 
 def main():
-    """
-    Main entry point for the sort script.
-
-    Handles command line arguments, validates input folder, 
-    calls sorting functions, deletes empty folders, and writes log file.
-
-    Returns exit code based on success or failure:
-        0: Success
-        1: No folder specified
-        2: Specified folder does not exist
-        3: Specified path is not a folder
-
-    """
+    # log_level = logging.INFO
+    log_level = logging.DEBUG
+    logging.basicConfig(level=log_level, format="[%(asctime)s] %(levelname)s %(threadName)s %(message)s")
 
     if len(sys.argv) < 2:
         print("Mandatory parameter was not specified")
-        print("Usage sort.py <Directory>")
+        print("Usage sort.py <Folder>")
         print("Error Code: 1")
         return 1
 
     path = Path(sys.argv[1])
 
     if not path.exists():
-        print(f"Specified folder {path} does not exist\nError Code: 2")
+        print(f"Specified Folder {path} does not exist\nError Code: 2")
         return 2
 
     if not path.is_dir():
         print(
-            f"Parameter: {path} is not a irectory (probably file)\nError Code: 3")
+            f"Parameter: {path} is not a Folder (probably file)\nError Code: 3")
         return 3
+
+    start = time()
+    logging.debug(f'Start time: {start}')
 
     sort_folder(path)
 
@@ -369,7 +306,13 @@ def main():
 
     count_files_in_folders(path)
 
-    write_log_file(path)
+    # write_log_file(path)
+
+    end = time()
+
+    logging.debug(f'End time: {end}')
+    logging.info(f'Total time: {end - start}')
+    logging.info(f'Finished sorting folder {path}')
 
     return 0
 
